@@ -268,13 +268,6 @@ class CharacterCreator(tk.Tk):
                 color_button.config(relief=tk.SUNKEN)
 
     def update_tab_control_list_and_character_display(self, event=None):
-        if self.value_slider.get() == 0:
-            self.color_currently_selected = None
-        self.set_selection_image(self.item_currently_selected.type)
-        self.update_tab_control_list()
-        self.update_character_display()
-
-    def select_color(self, color):
         tab_name = self.tab_control.tab(self.tab_control.select(), "text").lower()
         if self.shirt_selected is not None and tab_name == "shirt":
             self.item_currently_selected = self.shirt_selected
@@ -283,6 +276,11 @@ class CharacterCreator(tk.Tk):
         elif self.hat_selected is not None and tab_name == "hat":
             self.item_currently_selected = self.hat_selected
 
+        self.set_selection_image(self.item_currently_selected.type)
+        self.update_tab_control_list()
+        self.update_character_display()
+
+    def select_color(self, color):
         self.color_currently_selected = color
         if self.item_currently_selected:
             self.set_selection_image(self.item_currently_selected.type)
