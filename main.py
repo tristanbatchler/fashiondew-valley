@@ -69,7 +69,7 @@ def dye_image(base_image_path: Path, color_name, strength):
     output_path = base_image_path.parent / f"{color_name}_{strength}.png"
 
     if output_path.exists():
-        print(f"Skipping {output_path} (already exists)")
+        # print(f"Skipping {output_path} (already exists)")
         return
 
     # Open base image
@@ -104,7 +104,7 @@ def dye_image(base_image_path: Path, color_name, strength):
     opacity_0 = lightness_score * strength_score
     blend_opacity = opacity_0 + (strength / 25 - 1) * (1 - opacity_0) / 3
 
-    print(f"{base_image_path} got max value of {max_value}, so a lightness score of {lightness_score} resulting in a blend opacity of {blend_opacity}")
+    # print(f"{base_image_path} got max value of {max_value}, so a lightness score of {lightness_score} resulting in a blend opacity of {blend_opacity}")
 
     result_image = numpy.uint8(blend_modes.multiply(base_image_gray, solid_color, min(blend_opacity, 1)))
 
@@ -149,17 +149,26 @@ class CharacterCreator(tk.Tk):
         super().__init__()
 
         self.title("Character Creator")
-        self.geometry("1280x960")
+        self.geometry("960x640")
 
         self.tailoring_data = tailoring_data
 
+        self.color_currently_selected = None
         self.create_widgets()
         self.tab_control.bind("<<NotebookTabChanged>>", lambda event: self.update_tab_control_list(self.tab_control.select()))
 
-        self.color_selected = None
+        self.shirt_color = None
+        self.pants_color = None
+        self.hat_color = None
+
         self.shirt_selected = None
         self.pants_selected = None
         self.hat_selected = None
+        self.item_currently_selected = None
+
+        self.shirt_strength = 0
+        self.pants_strength = 0
+        self.hat_strength = 0
 
         self.shirt_img = None
         self.pants_img = None
@@ -184,14 +193,19 @@ class CharacterCreator(tk.Tk):
         self.tab_control.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
         # Add a grid of tailorable items to each page in the notebook
-        self.notebook_page = tk.Canvas(self.tab_control, width=640, height=480)
+        self.notebook_page = tk.Canvas(self.tab_control, width=480, height=240)
         self.notebook_page_frame = tk.Frame(self.notebook_page)
         self.notebook_page_scrollbar = tk.Scrollbar(self.tab_control, orient="vertical", command=self.notebook_page.yview)
         self.notebook_page.configure(yscrollcommand=self.notebook_page_scrollbar.set)
 
         self.notebook_page_scrollbar.grid(row=0, column=1, padx=(0,10), pady=10, sticky="ns")
-        self.notebook_page.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        self.notebook_page.grid(row=0, column=0, padx=10, pady=42, sticky="nsew")
         self.notebook_page.create_window((0, 0), window=self.notebook_page_frame, anchor="nw")
+
+        # Under the notebook page: Show only dyeable items checkbox
+        self.show_only_dyeable_var = tk.IntVar()
+        self.show_only_dyeable_checkbox = tk.Checkbutton(self, text="Show only dyeable items", variable=self.show_only_dyeable_var, command=self.update_tab_control_list)
+        self.show_only_dyeable_checkbox.grid(row=1, column=1, padx=10, pady=10, sticky="nw")
 
 
         # Middle left: Color Palette
@@ -210,8 +224,12 @@ class CharacterCreator(tk.Tk):
         self.icons_list = tk.Listbox(self, width=30, height=10)
         self.icons_list.grid(row=2, column=2, padx=10, pady=10)
 
-        # Example usage of updating character portrait
-        self.character_image = tk.PhotoImage(file="images/default.png")
+        # Top left: Character portrait (blank if file not found)
+        portrait_path = Path(CWD / "images" / "default.png")
+        if portrait_path.exists():
+            self.character_image = tk.PhotoImage(file="images/default.png")
+        else:
+            self.character_image = tk.PhotoImage(width=32, height=32)
         # Zoom the character portait image to 4x
         self.character_image = self.character_image.zoom(4, 4)
 
@@ -219,19 +237,15 @@ class CharacterCreator(tk.Tk):
 
 
         # Example usage of updating color palette
-        columns = 11
-        for i, color in enumerate(colors):
-            r, g, b = colors[color]
-            color_button = tk.Button(self.color_palette, bg=f"#{r:02x}{g:02x}{b:02x}", width=2, height=1, command=lambda color=color: self.select_color(color))
-            color_button.grid(row=i // columns, column=i % columns, padx=5, pady=5)
+        self.update_color_palette()
 
         self.value_slider.set(0)
         
         # Only allow the slider to move in increments of 25
         self.value_slider.config(resolution=25)
 
-        # Hook up the slider to update the tab control list
-        self.value_slider.bind("<ButtonRelease-1>", self.update_tab_control_list)
+        # Hook up the slider to update the tab control list and 
+        self.value_slider.bind("<ButtonRelease-1>", self.update_tab_control_list_and_character_display)
 
         # Example usage of ingredients list
         ingredients = ["Ingredient 1", "Ingredient 2", "Ingredient 3", "Ingredient 4", "Ingredient 5"]
@@ -243,15 +257,50 @@ class CharacterCreator(tk.Tk):
         for icon in icons:
             self.icons_list.insert(tk.END, icon)
 
-    def select_color(self, color):
-        self.color_selected = color
+    def update_color_palette(self):
+        columns = 11
+        for i, color in enumerate(colors):
+            r, g, b = colors[color]
+            color_button = tk.Button(self.color_palette, bg=f"#{r:02x}{g:02x}{b:02x}", width=2, height=1, command=lambda color=color: self.select_color(color))
+            color_button.grid(row=i // columns, column=i % columns, padx=5, pady=5)
+
+            if self.color_currently_selected == color:
+                color_button.config(relief=tk.SUNKEN)
+
+    def update_tab_control_list_and_character_display(self, event=None):
+        if self.value_slider.get() == 0:
+            self.color_currently_selected = None
+        self.set_selection_image(self.item_currently_selected.type)
         self.update_tab_control_list()
         self.update_character_display()
+
+    def select_color(self, color):
+        tab_name = self.tab_control.tab(self.tab_control.select(), "text").lower()
+        if self.shirt_selected is not None and tab_name == "shirt":
+            self.item_currently_selected = self.shirt_selected
+        elif self.pants_selected is not None and tab_name == "pants":
+            self.item_currently_selected = self.pants_selected
+        elif self.hat_selected is not None and tab_name == "hat":
+            self.item_currently_selected = self.hat_selected
+
+        self.color_currently_selected = color
+        if self.item_currently_selected:
+            self.set_selection_image(self.item_currently_selected.type)
+        self.update_tab_control_list_and_character_display()
+        self.update_color_palette()
 
     def update_tab_control_list(self, event=None):
         tab_label = self.tab_control.tab(self.tab_control.select(), "text")
         tab_name = tab_label.lower()
         
+        if self.item_currently_selected and tab_name != self.item_currently_selected.type:
+            self.item_currently_selected = None
+        elif self.shirt_selected and tab_name == "shirt":
+            self.item_currently_selected = self.shirt_selected
+        elif self.pants_selected and tab_name == "pants":
+            self.item_currently_selected = self.pants_selected
+        elif self.hat_selected and tab_name == "hat":
+            self.item_currently_selected = self.hat_selected
 
         # Clear the current list of items
         for widget in self.notebook_page_frame.winfo_children():
@@ -260,11 +309,14 @@ class CharacterCreator(tk.Tk):
         # Scrollable grid of selectable tailorable items (icon + name) based on tab selection
         itemno = -1
         for item in self.tailoring_data:
+            if self.show_only_dyeable_var.get() and not item.dyeable:
+                continue
+
             if item.type == tab_name:
                 itemno += 1
                 variant = "original.png"
-                if item.dyeable and self.color_selected is not None and self.value_slider.get() > 0:
-                    variant = self.color_selected + "_" + str(self.value_slider.get()) + ".png"
+                if item.dyeable and self.color_currently_selected is not None and self.value_slider.get() > 0:
+                    variant = self.color_currently_selected + "_" + str(self.value_slider.get()) + ".png"
 
                 icon_img_path = Path(CWD / "images" / item.type / sanitize_name(item.name) / variant)
                 icon_img = tk.PhotoImage(file=icon_img_path)
@@ -274,57 +326,60 @@ class CharacterCreator(tk.Tk):
                 columns = 4
                 button.grid(row=itemno // columns, column=itemno % columns, padx=5, pady=5)
 
+                if item.type == "shirt" and self.shirt_selected == item:
+                    button.config(relief=tk.SUNKEN)
+                elif item.type == "pants" and self.pants_selected == item:
+                    button.config(relief=tk.SUNKEN)
+                elif item.type == "hat" and self.hat_selected == item:
+                    button.config(relief=tk.SUNKEN)
+
         self.notebook_page_frame.update_idletasks()
         self.notebook_page.config(scrollregion=self.notebook_page.bbox("all"))
 
     def select_item(self, item: TailoringItem):
-        print(f"Selected {item.name}")
+        # print(f"Selected {item.name}")
         if item.type == "shirt":
             self.shirt_selected = item
         elif item.type == "pants":
             self.pants_selected = item
         elif item.type == "hat":
             self.hat_selected = item
+        self.item_currently_selected = item
 
-        self.update_character_display()
+        self.set_selection_image(item.type)
+        self.update_tab_control_list_and_character_display()
+
+    def set_selection_image(self, type):
+        if self.item_currently_selected is not None:
+            variant = "original.png"
+            if self.item_currently_selected.dyeable and self.color_currently_selected is not None and self.value_slider.get() > 0:
+                variant = self.color_currently_selected + "_" + str(self.value_slider.get()) + ".png"
+
+            img_path = Path(CWD / "images" / type / sanitize_name(self.item_currently_selected.name) / variant)
+            img = tk.PhotoImage(file=img_path)
+            img = img.zoom(4, 4)
+
+            if type == "shirt":
+                self.shirt_img = img
+            elif type == "pants":
+                self.pants_img = img
+            elif type == "hat":
+                self.hat_img = img
 
     def update_character_display(self):
-        print("Updating character display")
-        
-        variant = "original.png"
-        if self.color_selected is not None and self.value_slider.get() > 0:
-            variant = self.color_selected + "_" + str(self.value_slider.get()) + ".png"
+        # print("Updating character display")
 
-        shirt_variant = pants_variant = hat_variant = "original.png"
-        if self.color_selected is not None and self.value_slider.get() > 0:
-            if self.shirt_selected and self.shirt_selected.dyeable:
-                shirt_variant = variant
-            if self.pants_selected and self.pants_selected.dyeable:
-                pants_variant = variant
-            if self.hat_selected and self.hat_selected.dyeable:
-                hat_variant = variant
+        current_item_name = self.item_currently_selected.name if self.item_currently_selected else "None"
+        current_color = self.color_currently_selected if self.color_currently_selected else "original"
+        shirt_selected_name = self.shirt_selected.name if self.shirt_selected else "None"
+        shirt_color = self.shirt_color if self.shirt_color else "original"
+        pants_selected_name = self.pants_selected.name if self.pants_selected else "None"
+        pants_color = self.pants_color if self.pants_color else "original"
+        print(f"Item just selected: {current_item_name} ({current_color})")
+        print(f"Current shirt: {shirt_selected_name} ({shirt_color})")
+        print(f"Current pants: {pants_selected_name} ({pants_color})")
 
-
-        # Update the character display based on the selected items
-
-
-        if self.shirt_selected is not None:
-            shirt_img_path = Path(CWD / "images" / "shirt" / sanitize_name(self.shirt_selected.name) / shirt_variant)
-            self.shirt_img = tk.PhotoImage(file=shirt_img_path)
-            self.shirt_img = self.shirt_img.zoom(4, 4)
-            print(f"Shirt: {shirt_img_path}")
-
-        if self.pants_selected is not None:
-            pants_img_path = Path(CWD / "images" / "pants" / sanitize_name(self.pants_selected.name) / pants_variant)
-            self.pants_img = tk.PhotoImage(file=pants_img_path)
-            self.pants_img = self.pants_img.zoom(4, 4)
-            print(f"Pants: {pants_img_path}")
-
-        if self.hat_selected is not None:
-            hat_img_path = Path(CWD / "images" / "hat" / sanitize_name(self.hat_selected.name) / hat_variant)
-            self.hat_img = tk.PhotoImage(file=hat_img_path)
-            self.hat_img = self.hat_img.zoom(4, 4)
-            print(f"Hat: {hat_img_path}")
+        current_tab = self.tab_control.tab(self.tab_control.select(), "text").lower()
 
 
         # Combine the images
@@ -349,7 +404,7 @@ def get_tailoring_data() -> List[TailoringItem]:
     if response.status_code == 200:
         print("Successfully downloaded Tailoring page")
     else:
-        print("Failed to download Tailoring page")
+        # print("Failed to download Tailoring page")
         return
     
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -392,33 +447,33 @@ def get_tailoring_data() -> List[TailoringItem]:
 def main():
     tailoring_data = get_tailoring_data()
 
-    # for item in tailoring_data:
-    #     img_path = Path(CWD / "images" / item.type / sanitize_name(item.name) / "original.png")
+    for item in tailoring_data:
+        img_path = Path(CWD / "images" / item.type / sanitize_name(item.name) / "original.png")
 
-    #     # Download the original image
-    #     if not img_path.exists():
-    #         reduce = 3 if item.type == "hat" else 4
-    #         download_image(item.image_url, img_path, reduce_size_by=reduce)
+        # Download the original image
+        if not img_path.exists():
+            reduce = 3 if item.type == "hat" else 4
+            download_image(item.image_url, img_path, reduce_size_by=reduce)
         
-    #     # Get the dyed versions of the image
-    #     for color in colors:
-    #         for strength in [25, 50, 75, 100]:
-    #             if item.dyeable:
-    #                 dye_image(img_path, color, strength)
+        # Get the dyed versions of the image
+        for color in colors:
+            for strength in [25, 50, 75, 100]:
+                if item.dyeable:
+                    dye_image(img_path, color, strength)
 
-    # # Download all ingredient images
-    # ingredients = set()
-    # for item in tailoring_data:
-    #     for ingredient in item.ingredients:
-    #         ingredients.add(ingredient)
+    # Download all ingredient images
+    ingredients = set()
+    for item in tailoring_data:
+        for ingredient in item.ingredients:
+            ingredients.add(ingredient)
 
-    # for ingredient in ingredients:
-    #     img_path = Path(CWD / "images" / "ingredients" / (sanitize_name(ingredient.name) + ".png"))
-    #     if not img_path.exists():
-    #         print(f"Downloading {ingredient.name}")
-    #         download_image(ingredient.image_url, img_path)
-    #     else:
-    #         print(f"Skipping {ingredient.name} (already downloaded)")
+    for ingredient in ingredients:
+        img_path = Path(CWD / "images" / "ingredients" / (sanitize_name(ingredient.name) + ".png"))
+        if not img_path.exists():
+            # print(f"Downloading {ingredient.name}")
+            download_image(ingredient.image_url, img_path)
+        else:
+            print(f"Skipping {ingredient.name} (already downloaded)")
 
     # Start the GUI
     app = CharacterCreator(tailoring_data)
