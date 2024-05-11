@@ -1,0 +1,5 @@
+blend-modes
+pillow
+numpy
+requests
+beautifulsoup4
