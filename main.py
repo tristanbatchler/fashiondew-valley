@@ -280,6 +280,23 @@ class CharacterCreator(tk.Tk):
         self.set_selection_image(self.item_currently_selected.type)
         self.update_tab_control_list()
         self.update_character_display()
+        self.update_ingredients_list(self.calculate_ingredients())
+
+
+    def calculate_ingredients(self):
+        ingredients = []
+        if self.shirt_selected:
+            ingredients.extend(self.shirt_selected.ingredients)
+        if self.pants_selected:
+            ingredients.extend(self.pants_selected.ingredients)
+        if self.hat_selected:
+            ingredients.extend(self.hat_selected.ingredients)
+        return ingredients
+    
+    def update_ingredients_list(self, ingredients):
+        self.ingredients_list.delete(0, tk.END)
+        for ingredient in ingredients:
+            self.ingredients_list.insert(tk.END, ingredient.name)
 
     def select_color(self, color):
         if self.value_slider.get() == 0:
@@ -416,27 +433,30 @@ def get_tailoring_data() -> List[TailoringItem]:
     for table_idx, table in enumerate(tables):
         if table_idx > 2:
             break  # Other tables at the end are not relevant
+
+        # Shirst have 5 columns, pants have 4, and hats have 3
+        ingredients_column = 5 if table_idx == 0 else 4 if table_idx == 1 else 3
+
         for row in table.find_all("tr"):
             if row.find("th"):
                 continue
             tailoring_item: TailoringItem = TailoringItem(type=["shirt", "pants", "hat"][table_idx], ingredients=[])
             for i, cell in enumerate(row.find_all("td")):
-                match i:
-                    case 0:
+
+                    if i == 0:
                         tailoring_item.image_url = base + cell.find("img")["src"]
-                    case 1:
+                    elif i == 1:
                         tailoring_item.name = cell.get_text()
-                    case 3:
+                    elif i == 3 and table_idx != 2:  # Hats don't have a dyeable column
                         tailoring_item.dyeable = "Yes" in cell.get_text()
-                    case 5:
+                    elif i == ingredients_column:
                         # image_url is in the img tag, name is in the a tag
                         tailoring_item.ingredients = []
-                        ingredient_image = cell.find("img")
-                        if ingredient_image:
-                            ingredient_image_url = base + ingredient_image["src"]
-                            ingredient_name = cell.find("a").get_text()
-                            tailoring_item.ingredients.append(IngredientItem(name=ingredient_name, image_url=ingredient_image_url))
-
+                        for ingredient in cell.find_all("span"):
+                            ingredient_item = IngredientItem()
+                            ingredient_item.image_url = base + ingredient.find("img")["src"]
+                            ingredient_item.name = ingredient.find("a").get_text()
+                            tailoring_item.ingredients.append(ingredient_item)
             # There are a lot of duplicates
             names_so_far = [item.name for item in items]
             if tailoring_item.name in names_so_far:
