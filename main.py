@@ -276,11 +276,15 @@ class CharacterCreator(tk.Tk):
         elif self.hat_selected is not None and tab_name == "hat":
             self.item_currently_selected = self.hat_selected
 
+
         self.set_selection_image(self.item_currently_selected.type)
         self.update_tab_control_list()
         self.update_character_display()
 
     def select_color(self, color):
+        if self.value_slider.get() == 0:
+            self.value_slider.set(25)
+
         self.color_currently_selected = color
         if self.item_currently_selected:
             self.set_selection_image(self.item_currently_selected.type)
