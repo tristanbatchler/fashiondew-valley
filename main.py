@@ -127,6 +127,7 @@ class CharacterCreator(tk.Tk):
 
         self.choice_indices: dict[int, int] = {}
         self.current_color_ingredients_requirements: list[set[IngredientCombination]] = []
+        self.current_clothing_ingredients_requirements: list[IngredientItem] = []
 
     def create_widgets(self):
         # Top left: Character Portrait
@@ -237,7 +238,8 @@ class CharacterCreator(tk.Tk):
         self.set_selection_image(self.item_currently_selected.type)
         self.update_tab_control_list()
         self.update_character_display()
-        self.update_clothing_ingredients_list(self.calculate_clothing_ingredients())
+        self.current_clothing_ingredients_requirements = self.calculate_clothing_ingredients()
+        self.update_clothing_ingredients_list()
         self.current_color_ingredients_requirements = self.calculate_color_ingredients()
         self.update_color_ingredients_list()
 
@@ -256,19 +258,19 @@ class CharacterCreator(tk.Tk):
         """Returns a list of choices. These are all the choices you need to make the dyes for your current outfit"""
         ingredients = []
         if self.shirt_color and self.shirt_selected.dyeable:
-            ingredients.append(get_ingredients_choices(self.shirt_color, self.shirt_strength))
+            ingredients.append(get_ingredients_choices(self.shirt_color, self.shirt_strength, favour=self.current_clothing_ingredients_requirements))
         if self.pants_color and self.pants_selected.dyeable:
-            ingredients.append(get_ingredients_choices(self.pants_color, self.pants_strength))
+            ingredients.append(get_ingredients_choices(self.pants_color, self.pants_strength, favour=self.current_clothing_ingredients_requirements))
         if self.hat_color and self.hat_selected.dyeable:
-            ingredients.append(get_ingredients_choices(self.hat_color, self.hat_strength))
+            ingredients.append(get_ingredients_choices(self.hat_color, self.hat_strength, favour=self.current_clothing_ingredients_requirements))
         return ingredients
     
-    def update_clothing_ingredients_list(self, ingredients):
+    def update_clothing_ingredients_list(self):
         # Clear the current list of ingredients
         for widget in self.clothing_ingredients_list.winfo_children():
             widget.destroy()
         
-        for ingredient in ingredients:
+        for ingredient in self.current_clothing_ingredients_requirements:
             row = tk.Frame(self.clothing_ingredients_list)
             icon_img_path = Path(CWD / "images" / "ingredients" / (sanitize_name(ingredient.name) + ".png"))
             icon_img = tk.PhotoImage(file=icon_img_path)

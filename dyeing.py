@@ -65,7 +65,7 @@ dyeing_info = _get_dyeing_info()
 
 
 
-def get_ingredients_choices(desired_color: str, desired_strength: int) -> set[IngredientCombination]:
+def get_ingredients_choices(desired_color: str, desired_strength: int, favour: list[IngredientItem] | None = None) -> set[IngredientCombination]:
     """The return value represents the choices the user has available. Each choice is an ingredient or combination of ingredients that can be used to achieve the desired color and strength."""
     ingredients_strengths = dyeing_info[desired_color]["ingredients"].items()
 
