@@ -1,108 +1,22 @@
-from PIL import Image
-import blend_modes
-import numpy
-import math
-import requests
-from bs4 import BeautifulSoup
 from typing import *
 from pathlib import Path
-import os
 import tkinter as tk
 from tkinter import ttk
 from items import IngredientItem, TailoringItem, IngredientCombination
 from dyeing import get_ingredients_choices, dyeing_info
+from tailoring import tailoring_data
+from download_images import download_images, sanitize_name
 
 
 CWD = Path(__file__).parent
 
 
-def map_between(value, start1, stop1, start2, stop2):
-    return start2 + (stop2 - start2) * ((value - start1) / (stop1 - start1))
-
-def logistical_map(x, L, k, x0):
-    return L / (1 + math.exp(-k*(x - x0)))
-
-def dye_image(base_image_path: Path, color_name, strength):
-    """
-    Takes a transparent image and dyes it with the specified color. To do this, first the base 
-    image is converted to grayscale, then a solid color image with the same size/edges is overlaid 
-    on top of the grayscale image with a blend mode of "overlay". The result is saved to the output 
-    path.
-    """
-
-    color = dyeing_info[color_name]["rgb"]
-
-    output_path = base_image_path.parent / f"{color_name}_{strength}.png"
-
-    if output_path.exists():
-        # print(f"Skipping {output_path} (already exists)")
-        return
-
-    # Open base image
-    base_image = Image.open(base_image_path)
-
-    base_image_gray = numpy.array(base_image.convert('L').convert('RGBA')).astype('float')
-
-    # Get the max value of the grayscale image (ignoring transparent pixels)
-    max_value = 0
-    for row in base_image_gray:
-        for pixel in row:
-            if pixel[3] > 0 and pixel[0] > max_value:
-                max_value = pixel[0]
-
-    # Lighten the grayscale image until its new max_value is 255 (careful to preserve transparency)
-    lightened_base_image_gray = numpy.copy(base_image_gray)
-    for i in range(len(lightened_base_image_gray)):
-        for j in range(len(lightened_base_image_gray[i])):
-            if lightened_base_image_gray[i][j][3] > 0:
-                lightened_base_image_gray[i][j][0] = map_between(lightened_base_image_gray[i][j][0], 0, max_value, 0, 255)
-    
-    # Create a solid color image with the same size as the base image
-    solid_color_raw = Image.new('RGBA', base_image.size, color)
-
-    # Convert to float array (required for blend_modes)
-    solid_color = numpy.array(solid_color_raw).astype('float')
-
-    # Blend the grayscale image with the solid color image using the "overlay" blend mode
-    lightness_score = logistical_map(max_value, 0.85, -0.07, 132) + 0.15
-    strength_score = map_between(strength, 25, 100, 1.25, 2)
-
-    opacity_0 = lightness_score * strength_score
-    blend_opacity = opacity_0 + (strength / 25 - 1) * (1 - opacity_0) / 3
-
-    # print(f"{base_image_path} got max value of {max_value}, so a lightness score of {lightness_score} resulting in a blend opacity of {blend_opacity}")
-
-    result_image = numpy.uint8(blend_modes.multiply(base_image_gray, solid_color, min(blend_opacity, 1)))
-
-    # Save the result image
-
-    Image.fromarray(result_image).save(output_path)
-
-def download_image(url, output_path, reduce_size_by=1):
-    os.makedirs(output_path.parent, exist_ok=True)
-    response = requests.get(url)
-    with open(output_path, 'wb') as f:
-        f.write(response.content)
-
-    #Resize to 8x8 (nearest neighbor) as many of these are upscaled to either 32x32, 48x48, or 54x54
-    # This is to make the images actually pixel perfect as they are in the game
-    if reduce_size_by > 1:
-        img = Image.open(output_path)
-        img = img.resize((img.width // reduce_size_by, img.height // reduce_size_by), Image.NEAREST)
-        img.save(output_path)
-
-def sanitize_name(name):
-    return "".join(x for x in name if x.isalnum())
-
-
 class CharacterCreator(tk.Tk):
-    def __init__(self, tailoring_data: List[TailoringItem]):
+    def __init__(self):
         super().__init__()
 
         self.title("Character Creator")
         self.geometry("960x640")
-
-        self.tailoring_data = tailoring_data
 
         self.color_currently_selected = None
         self.create_widgets()
@@ -203,8 +117,6 @@ class CharacterCreator(tk.Tk):
 
         self.character_canvas.create_image(150, 200, image=self.character_image)
 
-
-        # Example usage of updating color palette
         self.update_color_palette()
 
         self.value_slider.set(0)
@@ -354,11 +266,6 @@ class CharacterCreator(tk.Tk):
 
             row.pack()
 
-              
-                
-
-
-
     def select_color(self, color):
         if self.value_slider.get() == 0:
             self.value_slider.set(25)
@@ -390,7 +297,7 @@ class CharacterCreator(tk.Tk):
 
         # Scrollable grid of selectable tailorable items (icon + name) based on tab selection
         itemno = -1
-        for item in self.tailoring_data:
+        for item in tailoring_data:
             if self.show_only_dyeable_var.get() and not item.dyeable:
                 continue
 
@@ -419,7 +326,6 @@ class CharacterCreator(tk.Tk):
         self.notebook_page.config(scrollregion=self.notebook_page.bbox("all"))
 
     def select_item(self, item: TailoringItem):
-        # print(f"Selected {item.name}")
         if item.type == "shirt":
             self.shirt_selected = item
         elif item.type == "pants":
@@ -456,130 +362,21 @@ class CharacterCreator(tk.Tk):
                 self.hat_color = self.color_currently_selected
 
     def update_character_display(self):
-        # print("Updating character display")
-
-        current_item_name = self.item_currently_selected.name if self.item_currently_selected else "None"
-        current_color = self.color_currently_selected if self.color_currently_selected else "original"
-        shirt_selected_name = self.shirt_selected.name if self.shirt_selected else "None"
-        shirt_color = self.shirt_color if self.shirt_color else "original"
-        pants_selected_name = self.pants_selected.name if self.pants_selected else "None"
-        pants_color = self.pants_color if self.pants_color else "original"
-        print(f"Item just selected: {current_item_name} ({current_color})")
-        print(f"Current shirt: {shirt_selected_name} ({shirt_color})")
-        print(f"Current pants: {pants_selected_name} ({pants_color})")
-
-        current_tab = self.tab_control.tab(self.tab_control.select(), "text").lower()
-
-
         # Combine the images
         if self.shirt_img is not None:
             self.shirt_display = self.character_canvas.create_image(150, 220, image=self.shirt_img)
         if self.pants_img is not None:
             self.pants_display = self.character_canvas.create_image(150, 242, image=self.pants_img)
         if self.hat_img is not None:
-            self.hat_display = self.character_canvas.create_image(150, 176, image=self.hat_img)
+            hat_y = 168 if self.hat_selected.hat_high else 176
+            self.hat_display = self.character_canvas.create_image(150, hat_y, image=self.hat_img)
        
         self.character_canvas.update()
 
 
-def get_tailoring_data() -> List[TailoringItem]:
-
-    items = []
-
-    base = "https://stardewvalleywiki.com/"
-    wiki_url = base + "Tailoring"
-    response = requests.get(wiki_url)
-
-    if response.status_code == 200:
-        print("Successfully downloaded Tailoring page")
-    else:
-        # print("Failed to download Tailoring page")
-        return
-    
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    # All data we want is in tables with the class "wikitable". The first table is for shirts, the second for pants, and the third for hats.
-    tables = soup.find_all("table", class_="wikitable")
-    for table_idx, table in enumerate(tables):
-        if table_idx > 2:
-            break  # Other tables at the end are not relevant
-
-        # Shirst have 5 columns, pants have 4, and hats have 3
-        ingredients_column = 5 if table_idx == 0 else 4 if table_idx == 1 else 3
-
-        for row in table.find_all("tr"):
-            if row.find("th"):
-                continue
-            tailoring_item: TailoringItem = TailoringItem(type=["shirt", "pants", "hat"][table_idx], ingredients=[])
-            for i, cell in enumerate(row.find_all("td")):
-
-                    if i == 0:
-                        tailoring_item.image_url = base + cell.find("img")["src"]
-                    elif i == 1:
-                        tailoring_item.name = cell.get_text()
-                    elif i == 3 and table_idx != 2:  # Hats don't have a dyeable column
-                        tailoring_item.dyeable = "Yes" in cell.get_text()
-                    elif i == ingredients_column:
-                        # image_url is in the img tag, name is in the a tag
-                        tailoring_item.ingredients = []
-                        for ingredient in cell.find_all("span"):
-                            ingredient_item = IngredientItem()
-                            ingredient_item.image_url = base + ingredient.find("img")["src"]
-                            ingredient_item.name = ingredient.find("a").get_text()
-                            tailoring_item.ingredients.append(ingredient_item)
-            # There are a lot of duplicates
-            names_so_far = [item.name for item in items]
-            if tailoring_item.name in names_so_far:
-                tailoring_item.name = f"{tailoring_item.image_url.split('/')[-1].split('.')[0]}"
-            
-
-            items.append(tailoring_item)
-    return items
-
-def main():
-    tailoring_data = get_tailoring_data()
-
-    for item in tailoring_data:
-        img_path = Path(CWD / "images" / item.type / sanitize_name(item.name) / "original.png")
-
-        # Download the original image
-        if not img_path.exists():
-            reduce = 3 if item.type == "hat" else 4
-            download_image(item.image_url, img_path, reduce_size_by=reduce)
-        
-        # Get the dyed versions of the image
-        for color in dyeing_info:
-            for strength in [25, 50, 75, 100]:
-                if item.dyeable:
-                    dye_image(img_path, color, strength)
-
-    # Download all ingredient images
-    ingredients = set()
-    for item in tailoring_data:
-        for ingredient in item.ingredients:
-            ingredients.add(ingredient)
-
-    for ingredient in ingredients:
-        img_path = Path(CWD / "images" / "ingredients" / (sanitize_name(ingredient.name) + ".png"))
-        if not img_path.exists():
-            # print(f"Downloading {ingredient.name}")
-            download_image(ingredient.image_url, img_path)
-        else:
-            print(f"Skipping {ingredient.name} (already downloaded)")
-
-    # Download the rest of the ingredient images (from dyeing.py)
-    for color in dyeing_info:
-        for ingredient in dyeing_info[color]["ingredients"]:
-            img_path = Path(CWD / "images" / "ingredients" / (sanitize_name(ingredient.name) + ".png"))
-            if not img_path.exists():
-                # print(f"Downloading {ingredient.name}")
-                download_image(ingredient.image_url, img_path)
-            else:
-                print(f"Skipping {ingredient.name} (already downloaded)")
+if __name__ == '__main__':
+    download_images()
 
     # Start the GUI
-    app = CharacterCreator(tailoring_data)
+    app = CharacterCreator()
     app.mainloop()
-
-if __name__ == '__main__':
-    main()
