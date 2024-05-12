@@ -125,6 +125,9 @@ class CharacterCreator(tk.Tk):
         self.pants_img = None
         self.hat_img = None
 
+        self.choice_indices: dict[int, int] = {}
+        self.current_color_ingredients_requirements: list[set[IngredientCombination]] = []
+
     def create_widgets(self):
         # Top left: Character Portrait
         self.character_canvas = tk.Canvas(self, width=320, height=320)
@@ -235,7 +238,8 @@ class CharacterCreator(tk.Tk):
         self.update_tab_control_list()
         self.update_character_display()
         self.update_clothing_ingredients_list(self.calculate_clothing_ingredients())
-        self.update_color_ingredients_list(self.calculate_color_ingredients())
+        self.current_color_ingredients_requirements = self.calculate_color_ingredients()
+        self.update_color_ingredients_list()
 
 
     def calculate_clothing_ingredients(self):
@@ -273,43 +277,82 @@ class CharacterCreator(tk.Tk):
             label.pack(side=tk.LEFT)
             row.pack()
 
-    def update_color_ingredients_list(self, choices: list[set[IngredientCombination]]):
+    def increase_choice_index(self, row_number):
+        if row_number not in self.choice_indices:
+            self.choice_indices[row_number] = 0
+        self.choice_indices[row_number] += 1
+        self.update_color_ingredients_list()
+
+    def decrease_choice_index(self, row_number):
+        if row_number not in self.choice_indices:
+            self.choice_indices[row_number] = 0
+        self.choice_indices[row_number] -= 1
+        self.update_color_ingredients_list()
+
+    def get_choice_index(self, row_number):
+        if row_number not in self.choice_indices:
+            self.choice_indices[row_number] = 0
+        return self.choice_indices[row_number]
+    
+    def reset_choice_indices(self):
+        self.choice_indices = {}
+
+    def update_color_ingredients_list(self):
         # Clear the current list of ingredients
         for widget in self.color_ingredients_list.winfo_children():
             widget.destroy()
 
-        # For each row, the choices are displayed as a series of icons with the delimiter " or ",
-        # e.g. 2x🎃 + 🍎 or 3x🍎
+        # For each row, the choices are displayed as a series of icons 
+        # e.g. 2x🎃 + 🍎
+        # There will be several ways to make the same color, so there are left and right arrows to scroll through the choices
 
-        for choice in choices:
-            row = tk.Frame(self.color_ingredients_list)
+        for row_number, requirement in enumerate(self.current_color_ingredients_requirements):
+            requirement = list(requirement)
+            if len(requirement) <= 0:
+                row_number -= 1
+                continue
 
-            num_choices = len(choice)
-            for choice_number, ingredient_combination in enumerate(choice):
-                num_combos = len(ingredient_combination.combination)
-                for combo_number ,combo in enumerate(ingredient_combination.combination):
-                    # combo is set[tuple[IngredientItem, int]]
-                    qty_label_text = ""
-                    if combo[1] > 1:
-                        qty_label_text = f"{combo[1]}x"
-                    qty_label = tk.Label(row, text=qty_label_text)
-                    
-                    icon_img_path = Path(CWD / "images" / "ingredients" / (sanitize_name(combo[0].name) + ".png"))
-                    icon_img = tk.PhotoImage(file=icon_img_path)
-                    icon_label = tk.Label(row, text=qty_label_text, image=icon_img, compound=tk.LEFT, anchor=tk.W)
-                    icon_label.image = icon_img
+            row = tk.Frame(self.color_ingredients_list)  
+            
+            tk.Button(row, text="<", command=lambda row_number=row_number: self.increase_choice_index(row_number)).pack(side=tk.LEFT)
 
+            # Show the current choice
+            choice_index = self.get_choice_index(row_number)
+            
+            ingredient_combination = requirement[choice_index % len(requirement)]
+
+            num_combos = len(ingredient_combination.combination)
+            worded_label_text = " ("
+            for combo_number ,combo in enumerate(ingredient_combination.combination):
+                # combo is set[tuple[IngredientItem, int]]
+                qty_label = None
+                if combo[1] > 1:
+                    qty_label = tk.Label(row, text=f"{combo[1]}x")
+                
+                icon_img_path = Path(CWD / "images" / "ingredients" / (sanitize_name(combo[0].name) + ".png"))
+                icon_img = tk.PhotoImage(file=icon_img_path)
+                icon_label = tk.Label(row, text="", image=icon_img, compound=tk.LEFT, anchor=tk.W)
+                icon_label.image = icon_img
+
+                if qty_label:
                     qty_label.pack(side=tk.LEFT)
-                    icon_label.pack(side=tk.LEFT)
-                    if combo_number < num_combos - 1:
-                        tk.Label(row, text=" +").pack(side=tk.LEFT)
+                    worded_label_text += f"{combo[1]}x "
 
-                if choice_number < num_choices - 1:
-                    tk.Label(row, text=" or ").pack(side=tk.LEFT)
+                icon_label.pack(side=tk.LEFT)
+                worded_label_text += f"{combo[0].name}"
+
+                if combo_number < num_combos - 1:
+                    tk.Label(row, text=" +").pack(side=tk.LEFT)
+                    worded_label_text += " + "
+
+            tk.Label(row, text=worded_label_text + ")", anchor=tk.W).pack(side=tk.LEFT)
+
+            tk.Button(row, text=">", command=lambda row_number=row_number: self.decrease_choice_index(row_number)).pack(side=tk.LEFT)
+            
 
             row.pack()
-        
-                    
+
+              
                 
 
 
@@ -327,6 +370,8 @@ class CharacterCreator(tk.Tk):
     def update_tab_control_list(self, event=None):
         tab_label = self.tab_control.tab(self.tab_control.select(), "text")
         tab_name = tab_label.lower()
+
+        self.reset_choice_indices()
         
         if self.item_currently_selected and tab_name != self.item_currently_selected.type:
             self.item_currently_selected = None
@@ -426,7 +471,7 @@ class CharacterCreator(tk.Tk):
 
         # Combine the images
         if self.shirt_img is not None:
-            self.shirt_display = self.character_canvas.create_image(150, 216, image=self.shirt_img)
+            self.shirt_display = self.character_canvas.create_image(150, 220, image=self.shirt_img)
         if self.pants_img is not None:
             self.pants_display = self.character_canvas.create_image(150, 242, image=self.pants_img)
         if self.hat_img is not None:
