@@ -4,51 +4,17 @@ import numpy
 import math
 import requests
 from bs4 import BeautifulSoup
-from dataclasses import dataclass
 from typing import *
 from pathlib import Path
 import os
 import tkinter as tk
 from tkinter import ttk
+from items import IngredientItem, TailoringItem
+from dyeing import get_required_ingredients_for, dyeing_info
 
 
 CWD = Path(__file__).parent
 
-colors = {
-    "aquamarine": (127,255,212),
-    "black": (45,45,45),
-    "blue": (46,85,183),
-    "brown": (130,73,37),
-    "copper": (179,85,0),
-    "cyan": (0,255,255),
-    "dark blue": (0,0,139),
-    "dark brown": (139,69,19),
-    "dark gray": (169,169,169),
-    "dark green": (0,100,0),
-    "dark pink": (255,20,147),
-    "dark purple": (148,0,211),
-    "dark red": (139,0,0),
-    "dark yellow": (184,134,11),
-    "gold": (255,215,0),
-    "gray": (128,128,128),
-    "green": (10,143,0),
-    "iridium": (105,15,255),
-    "iron": (197,213,224),
-    "jade": (130,158,93),
-    "light cyan": (180,255,255),
-    "lime": (0,255,0),
-    "orange": (255,128,0),
-    "pale violet red": (219,112,147),
-    "pink": (255,163,186),
-    "poppyseed": (82,47,153),
-    "purple": (115,41,181),
-    "red": (220,0,0),
-    "salmon": (255,85,95),
-    "sand": (255,222,173),
-    "white": (255,255,255),
-    "yellow": (255,230,0),
-    "yellow green": (173,255,47)
-}
 
 def map_between(value, start1, stop1, start2, stop2):
     return start2 + (stop2 - start2) * ((value - start1) / (stop1 - start1))
@@ -64,7 +30,7 @@ def dye_image(base_image_path: Path, color_name, strength):
     path.
     """
 
-    color = colors[color_name]
+    color = dyeing_info[color_name]["rgb"]
 
     output_path = base_image_path.parent / f"{color_name}_{strength}.png"
 
@@ -128,21 +94,6 @@ def download_image(url, output_path, reduce_size_by=1):
 def sanitize_name(name):
     return "".join(x for x in name if x.isalnum())
 
-@dataclass
-class IngredientItem:
-    name: str | None = None
-    image_url: str | None = None
-
-    def __hash__(self):
-        return hash(self.name)
-
-@dataclass
-class TailoringItem:
-    name: str | None = None
-    image_url: str | None = None
-    type: Literal["shirt", "pants", "hat"] | None = None
-    ingredients: List[IngredientItem] | None = None
-    dyeable: bool | None = None
 
 class CharacterCreator(tk.Tk):
     def __init__(self, tailoring_data: List[TailoringItem]):
@@ -202,12 +153,6 @@ class CharacterCreator(tk.Tk):
         self.notebook_page.grid(row=0, column=0, padx=10, pady=42, sticky="nsew")
         self.notebook_page.create_window((0, 0), window=self.notebook_page_frame, anchor="nw")
 
-        # Under the notebook page: Show only dyeable items checkbox
-        self.show_only_dyeable_var = tk.IntVar()
-        self.show_only_dyeable_checkbox = tk.Checkbutton(self, text="Show only dyeable items", variable=self.show_only_dyeable_var, command=self.update_tab_control_list)
-        self.show_only_dyeable_checkbox.grid(row=1, column=1, padx=10, pady=10, sticky="nw")
-
-
         # Middle left: Color Palette
         self.color_palette = tk.Frame(self)
         self.color_palette.grid(row=1, column=0, padx=10, pady=10)
@@ -216,13 +161,32 @@ class CharacterCreator(tk.Tk):
         self.value_slider = tk.Scale(self, from_=0, to=100, orient=tk.HORIZONTAL, length=320, label="Dye strength (%)")
         self.value_slider.grid(row=2, column=0, padx=10, pady=10)
 
+
+        # Under the notebook page: a frame for a checkbox and two ingredients lists
+        self.bottom_frame = tk.Frame(self)
+        self.bottom_frame.grid(row=1, column=1, columnspan=2, rowspan=2, padx=10, pady=10, sticky="nsew")
+
+        # Under the notebook page: Show only dyeable items checkbox
+        self.show_only_dyeable_var = tk.IntVar()
+        self.show_only_dyeable_checkbox = tk.Checkbutton(self.bottom_frame, text="Show only dyeable items", variable=self.show_only_dyeable_var, command=self.update_tab_control_list)
+        self.show_only_dyeable_checkbox.grid(row=0, column=0, padx=10, pady=10)
+
+
         # Bottom middle: Scrollable list of ingredients
-        self.ingredients_list = tk.Listbox(self, width=30, height=10)
-        self.ingredients_list.grid(row=2, column=1, padx=10, pady=10)
+        self.clothing_ingredients_frame = tk.Frame(self.bottom_frame)
+        self.clothing_ingredients_frame.grid(row=1, column=0, padx=10, pady=10)
+
+        tk.Label(self.clothing_ingredients_frame, text="Clothing Ingredients").pack()
+        self.clothing_ingredients_list = tk.Listbox(self.clothing_ingredients_frame, width=30, height=10)
+        self.clothing_ingredients_list.pack()
 
         # Bottom right: Scrollable list of image icons and their names
-        self.icons_list = tk.Listbox(self, width=30, height=10)
-        self.icons_list.grid(row=2, column=2, padx=10, pady=10)
+        self.color_ingredients_frame = tk.Frame(self.bottom_frame)
+        self.color_ingredients_frame.grid(row=1, column=1, padx=10, pady=10)
+
+        tk.Label(self.color_ingredients_frame, text="Color Ingredients").pack()
+        self.color_ingredients_list = tk.Listbox(self.color_ingredients_frame, width=30, height=10)
+        self.color_ingredients_list.pack()
 
         # Top left: Character portrait (blank if file not found)
         portrait_path = Path(CWD / "images" / "default.png")
@@ -247,20 +211,10 @@ class CharacterCreator(tk.Tk):
         # Hook up the slider to update the tab control list and 
         self.value_slider.bind("<ButtonRelease-1>", self.update_tab_control_list_and_character_display)
 
-        # Example usage of ingredients list
-        ingredients = ["Ingredient 1", "Ingredient 2", "Ingredient 3", "Ingredient 4", "Ingredient 5"]
-        for ingredient in ingredients:
-            self.ingredients_list.insert(tk.END, ingredient)
-
-        # Example usage of icons list
-        icons = ["Icon 1", "Icon 2", "Icon 3", "Icon 4", "Icon 5"]
-        for icon in icons:
-            self.icons_list.insert(tk.END, icon)
-
     def update_color_palette(self):
         columns = 11
-        for i, color in enumerate(colors):
-            r, g, b = colors[color]
+        for i, color in enumerate(dyeing_info):
+            r, g, b = dyeing_info[color]["rgb"]
             color_button = tk.Button(self.color_palette, bg=f"#{r:02x}{g:02x}{b:02x}", width=2, height=1, command=lambda color=color: self.select_color(color))
             color_button.grid(row=i // columns, column=i % columns, padx=5, pady=5)
 
@@ -280,10 +234,11 @@ class CharacterCreator(tk.Tk):
         self.set_selection_image(self.item_currently_selected.type)
         self.update_tab_control_list()
         self.update_character_display()
-        self.update_ingredients_list(self.calculate_ingredients())
+        self.update_clothing_ingredients_list(self.calculate_clothing_ingredients())
+        self.update_color_ingredients_list(self.calculate_color_ingredients())
 
 
-    def calculate_ingredients(self):
+    def calculate_clothing_ingredients(self):
         ingredients = []
         if self.shirt_selected:
             ingredients.extend(self.shirt_selected.ingredients)
@@ -293,10 +248,26 @@ class CharacterCreator(tk.Tk):
             ingredients.extend(self.hat_selected.ingredients)
         return ingredients
     
-    def update_ingredients_list(self, ingredients):
-        self.ingredients_list.delete(0, tk.END)
+    def calculate_color_ingredients(self):
+        ingredients = []
+        if self.shirt_color and self.shirt_selected.dyeable:
+            ingredients.append(get_required_ingredients_for(self.shirt_color, self.shirt_strength))
+        if self.pants_color and self.pants_selected.dyeable:
+            ingredients.append(get_required_ingredients_for(self.pants_color, self.pants_strength))
+        if self.hat_color and self.hat_selected.dyeable:
+            ingredients.append(get_required_ingredients_for(self.hat_color, self.hat_strength))
+        return ingredients
+    
+    def update_clothing_ingredients_list(self, ingredients):
+        self.clothing_ingredients_list.delete(0, tk.END)
         for ingredient in ingredients:
-            self.ingredients_list.insert(tk.END, ingredient.name)
+            self.clothing_ingredients_list.insert(tk.END, ingredient.name)
+
+    def update_color_ingredients_list(self, ingredients):
+        self.color_ingredients_list.delete(0, tk.END)
+        for ingredient in ingredients:
+            choices_str = " or ".join([item.name for item in ingredient])
+            self.color_ingredients_list.insert(tk.END, choices_str)
 
     def select_color(self, color):
         if self.value_slider.get() == 0:
@@ -371,8 +342,9 @@ class CharacterCreator(tk.Tk):
     def set_selection_image(self, type):
         if self.item_currently_selected is not None:
             variant = "original.png"
-            if self.item_currently_selected.dyeable and self.color_currently_selected is not None and self.value_slider.get() > 0:
-                variant = self.color_currently_selected + "_" + str(self.value_slider.get()) + ".png"
+            strength = self.value_slider.get()
+            if self.item_currently_selected.dyeable and self.color_currently_selected is not None and strength > 0:
+                variant = self.color_currently_selected + "_" + str(strength) + ".png"
 
             img_path = Path(CWD / "images" / type / sanitize_name(self.item_currently_selected.name) / variant)
             img = tk.PhotoImage(file=img_path)
@@ -380,10 +352,16 @@ class CharacterCreator(tk.Tk):
 
             if type == "shirt":
                 self.shirt_img = img
+                self.shirt_strength = strength
+                self.shirt_color = self.color_currently_selected
             elif type == "pants":
                 self.pants_img = img
+                self.pants_strength = strength
+                self.pants_color = self.color_currently_selected
             elif type == "hat":
                 self.hat_img = img
+                self.hat_strength = strength
+                self.hat_color = self.color_currently_selected
 
     def update_character_display(self):
         # print("Updating character display")
@@ -478,7 +456,7 @@ def main():
             download_image(item.image_url, img_path, reduce_size_by=reduce)
         
         # Get the dyed versions of the image
-        for color in colors:
+        for color in dyeing_info:
             for strength in [25, 50, 75, 100]:
                 if item.dyeable:
                     dye_image(img_path, color, strength)
