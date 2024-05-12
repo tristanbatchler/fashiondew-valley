@@ -126,7 +126,7 @@ class CharacterCreator(tk.Tk):
         self.hat_img = None
 
         self.choice_indices: dict[int, int] = {}
-        self.current_color_ingredients_requirements: list[set[IngredientCombination]] = []
+        self.current_color_ingredients_requirements: list[list[IngredientCombination]] = []
         self.current_clothing_ingredients_requirements: list[IngredientItem] = []
 
     def create_widgets(self):
@@ -254,7 +254,7 @@ class CharacterCreator(tk.Tk):
             ingredients.extend(self.hat_selected.ingredients)
         return ingredients
     
-    def calculate_color_ingredients(self) -> list[set[IngredientCombination]]:
+    def calculate_color_ingredients(self) -> list[list[IngredientCombination]]:
         """Returns a list of choices. These are all the choices you need to make the dyes for your current outfit"""
         ingredients = []
         if self.shirt_color and self.shirt_selected.dyeable:
