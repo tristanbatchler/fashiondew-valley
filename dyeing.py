@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 import requests
-from items import IngredientItem
+from items import IngredientItem, IngredientCombination
+from dataclasses import dataclass
 
 # {
 #     "red": {
@@ -57,18 +58,63 @@ def _get_dyeing_info():
     return colors
 
 
+
+
+
 dyeing_info = _get_dyeing_info()
 
 
-def get_required_ingredients_for(color: str, strength: int) -> list[IngredientItem]:
-    color_info = dyeing_info.get(color)
-    if not color_info:
-        return []
 
-    ingredients = color_info["ingredients"]
-    return [ingredient for ingredient, dye_strength in ingredients.items() if dye_strength == strength]
+def get_ingredients_choices(desired_color: str, desired_strength: int) -> set[IngredientCombination]:
+    """The return value represents the choices the user has available. Each choice is an ingredient or combination of ingredients that can be used to achieve the desired color and strength."""
+    ingredients_strengths = dyeing_info[desired_color]["ingredients"].items()
+
+    choices = set()
+    for ingredient, strength in ingredients_strengths:
+        if strength == desired_strength:
+            combination = IngredientCombination()
+            combination.add(ingredient, strength//25)
+            choices.add(combination)
+        elif strength < desired_strength:
+            desired_strength_2 = desired_strength - strength
+            for ingredient_2, strength_2 in ingredients_strengths:
+                if strength_2 == desired_strength_2:
+                    combination = IngredientCombination()
+                    combination.add(ingredient, strength//25)
+                    combination.add(ingredient_2, strength_2//25)
+                    choices.add(combination)
+                elif strength_2 < desired_strength_2:
+                    desired_strength_3 = desired_strength_2 - strength_2
+                    for ingredient_3, strength_3 in ingredients_strengths:
+                        if strength_3 == desired_strength_3:
+                            combination = IngredientCombination()
+                            combination.add(ingredient, strength//25)
+                            combination.add(ingredient_2, strength_2//25)
+                            combination.add(ingredient_3, strength_3//25)
+                            choices.add(combination)
+                        elif strength_3 < desired_strength_3:
+                            desired_strength_4 = desired_strength_3 - strength_3
+                            for ingredient_4, strength_4 in ingredients_strengths:
+                                if strength_4 == desired_strength_4:
+                                    combination = IngredientCombination()
+                                    combination.add(ingredient, strength//25)
+                                    combination.add(ingredient_2, strength_2//25)
+                                    combination.add(ingredient_3, strength_3//25)
+                                    combination.add(ingredient_4, strength_4//25)
+                                    choices.add(combination)
+    return choices
 
 if __name__ == '__main__':
     print()
-    for ingredient in get_required_ingredients_for("red", 100):
-        print(ingredient.name)
+    ingredient_combinations = get_ingredients_choices("red", 75)
+    
+    for combination in ingredient_combinations:
+        # Sanity check: is 3x Fire Quartz here?
+        is_it_here = False
+        for ingredient, quantity in combination.combination:
+            if ingredient.name == "Fire Quartz" and quantity == 3:
+                is_it_here = True
+                break
+        if is_it_here:
+            print(combination)
+            break

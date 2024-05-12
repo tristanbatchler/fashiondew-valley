@@ -9,8 +9,8 @@ from pathlib import Path
 import os
 import tkinter as tk
 from tkinter import ttk
-from items import IngredientItem, TailoringItem
-from dyeing import get_required_ingredients_for, dyeing_info
+from items import IngredientItem, TailoringItem, IngredientCombination
+from dyeing import get_ingredients_choices, dyeing_info
 
 
 CWD = Path(__file__).parent
@@ -177,7 +177,7 @@ class CharacterCreator(tk.Tk):
         self.clothing_ingredients_frame.grid(row=1, column=0, padx=10, pady=10)
 
         tk.Label(self.clothing_ingredients_frame, text="Clothing Ingredients").pack()
-        self.clothing_ingredients_list = tk.Listbox(self.clothing_ingredients_frame, width=30, height=10)
+        self.clothing_ingredients_list = tk.Frame(self.clothing_ingredients_frame, width=30, height=10)
         self.clothing_ingredients_list.pack()
 
         # Bottom right: Scrollable list of image icons and their names
@@ -185,8 +185,8 @@ class CharacterCreator(tk.Tk):
         self.color_ingredients_frame.grid(row=1, column=1, padx=10, pady=10)
 
         tk.Label(self.color_ingredients_frame, text="Color Ingredients").pack()
-        self.color_ingredients_list = tk.Listbox(self.color_ingredients_frame, width=30, height=10)
-        self.color_ingredients_list.pack()
+        self.color_ingredients_list = tk.Frame(self.color_ingredients_frame, height=10)
+        self.color_ingredients_list.pack(fill=tk.X, expand=True)
 
         # Top left: Character portrait (blank if file not found)
         portrait_path = Path(CWD / "images" / "default.png")
@@ -248,26 +248,71 @@ class CharacterCreator(tk.Tk):
             ingredients.extend(self.hat_selected.ingredients)
         return ingredients
     
-    def calculate_color_ingredients(self):
+    def calculate_color_ingredients(self) -> list[set[IngredientCombination]]:
+        """Returns a list of choices. These are all the choices you need to make the dyes for your current outfit"""
         ingredients = []
         if self.shirt_color and self.shirt_selected.dyeable:
-            ingredients.append(get_required_ingredients_for(self.shirt_color, self.shirt_strength))
+            ingredients.append(get_ingredients_choices(self.shirt_color, self.shirt_strength))
         if self.pants_color and self.pants_selected.dyeable:
-            ingredients.append(get_required_ingredients_for(self.pants_color, self.pants_strength))
+            ingredients.append(get_ingredients_choices(self.pants_color, self.pants_strength))
         if self.hat_color and self.hat_selected.dyeable:
-            ingredients.append(get_required_ingredients_for(self.hat_color, self.hat_strength))
+            ingredients.append(get_ingredients_choices(self.hat_color, self.hat_strength))
         return ingredients
     
     def update_clothing_ingredients_list(self, ingredients):
-        self.clothing_ingredients_list.delete(0, tk.END)
+        # Clear the current list of ingredients
+        for widget in self.clothing_ingredients_list.winfo_children():
+            widget.destroy()
+        
         for ingredient in ingredients:
-            self.clothing_ingredients_list.insert(tk.END, ingredient.name)
+            row = tk.Frame(self.clothing_ingredients_list)
+            icon_img_path = Path(CWD / "images" / "ingredients" / (sanitize_name(ingredient.name) + ".png"))
+            icon_img = tk.PhotoImage(file=icon_img_path)
+            label = tk.Label(row, text=ingredient.name, image=icon_img, compound=tk.LEFT, anchor=tk.W)
+            label.image = icon_img
+            label.pack(side=tk.LEFT)
+            row.pack()
 
-    def update_color_ingredients_list(self, ingredients):
-        self.color_ingredients_list.delete(0, tk.END)
-        for ingredient in ingredients:
-            choices_str = " or ".join([item.name for item in ingredient])
-            self.color_ingredients_list.insert(tk.END, choices_str)
+    def update_color_ingredients_list(self, choices: list[set[IngredientCombination]]):
+        # Clear the current list of ingredients
+        for widget in self.color_ingredients_list.winfo_children():
+            widget.destroy()
+
+        # For each row, the choices are displayed as a series of icons with the delimiter " or ",
+        # e.g. 2x🎃 + 🍎 or 3x🍎
+
+        for choice in choices:
+            row = tk.Frame(self.color_ingredients_list)
+
+            num_choices = len(choice)
+            for choice_number, ingredient_combination in enumerate(choice):
+                num_combos = len(ingredient_combination.combination)
+                for combo_number ,combo in enumerate(ingredient_combination.combination):
+                    # combo is set[tuple[IngredientItem, int]]
+                    qty_label_text = ""
+                    if combo[1] > 1:
+                        qty_label_text = f"{combo[1]}x"
+                    qty_label = tk.Label(row, text=qty_label_text)
+                    
+                    icon_img_path = Path(CWD / "images" / "ingredients" / (sanitize_name(combo[0].name) + ".png"))
+                    icon_img = tk.PhotoImage(file=icon_img_path)
+                    icon_label = tk.Label(row, text=qty_label_text, image=icon_img, compound=tk.LEFT, anchor=tk.W)
+                    icon_label.image = icon_img
+
+                    qty_label.pack(side=tk.LEFT)
+                    icon_label.pack(side=tk.LEFT)
+                    if combo_number < num_combos - 1:
+                        tk.Label(row, text=" +").pack(side=tk.LEFT)
+
+                if choice_number < num_choices - 1:
+                    tk.Label(row, text=" or ").pack(side=tk.LEFT)
+
+            row.pack()
+        
+                    
+                
+
+
 
     def select_color(self, color):
         if self.value_slider.get() == 0:
@@ -474,6 +519,16 @@ def main():
             download_image(ingredient.image_url, img_path)
         else:
             print(f"Skipping {ingredient.name} (already downloaded)")
+
+    # Download the rest of the ingredient images (from dyeing.py)
+    for color in dyeing_info:
+        for ingredient in dyeing_info[color]["ingredients"]:
+            img_path = Path(CWD / "images" / "ingredients" / (sanitize_name(ingredient.name) + ".png"))
+            if not img_path.exists():
+                # print(f"Downloading {ingredient.name}")
+                download_image(ingredient.image_url, img_path)
+            else:
+                print(f"Skipping {ingredient.name} (already downloaded)")
 
     # Start the GUI
     app = CharacterCreator(tailoring_data)
